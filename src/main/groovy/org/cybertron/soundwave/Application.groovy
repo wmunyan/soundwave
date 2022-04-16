@@ -1,4 +1,4 @@
-package org.cybertron
+package org.cybertron.soundwave
 
 import io.micronaut.runtime.Micronaut
 import groovy.transform.CompileStatic

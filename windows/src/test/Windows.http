@@ -1,0 +1,4 @@
+GET http://localhost:8081/windows/health
+Accept: application/json
+
+###
