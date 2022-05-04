@@ -2,3 +2,46 @@ GET http://localhost:8081/windows/health
 Accept: application/json
 
 ###
+POST http://localhost:8081/windows/password-policy/scap
+Content-Type: application/json
+
+[
+  {
+    "id": "xccdf_org.cisecurity.benchmarks_ae_1.1.1.1",
+    "artifact_oval_id": 2577968,
+    "title": "Ensure 'Password Hist Len' is 'Greater Than Or Equal' to '24'",
+    "artifact": {
+      "type": "windows.passwordpolicyobject",
+      "parameters": [
+        {
+          "parameter": {
+            "dt": "string",
+            "name": "passwordpolicysetting",
+            "value": "Password Hist Len"
+          }
+        }
+      ]
+    },
+    "test": {
+      "type": "greater than or equal",
+      "parameters": [
+        {
+          "parameter": {
+            "dt": "string",
+            "name": "value",
+            "value": 24
+          }
+        },
+        {
+          "parameter": {
+            "dt": "string",
+            "name": "data_type",
+            "value": "int"
+          }
+        }
+      ]
+    }
+  }
+]
+
+
