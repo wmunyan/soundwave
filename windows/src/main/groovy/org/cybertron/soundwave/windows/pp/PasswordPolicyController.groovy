@@ -23,79 +23,121 @@ import io.micronaut.scheduling.annotation.ExecuteOn
 
 @Controller("/windows/password-policy")
 class PasswordPolicyController {
-    @Get
+    @Get("/info")
     def get() {
-        return ["family": "windows", "controller": "password-policy"]
+        return ["family": "windows", "type": "password-policy", "methods": ["scap", "xml", "json"]]
     }
 
-    @Post(value = "/read", produces = MediaType.APPLICATION_XML, processes = MediaType.APPLICATION_XML)
+    /**
+     * Mirror Optimus SCAP content generation
+     * @param artifactExpressionXml
+     * @return
+     * @throws IOException
+     */
+    @Post(value = "/scap", produces = MediaType.TEXT_PLAIN, processes = MediaType.APPLICATION_XML)
     @ExecuteOn(TaskExecutors.IO) //
-    String read(@Body InputStream inputStream) throws IOException { //
-        IOUtils.readText(new BufferedReader(new InputStreamReader(inputStream))) //
-    }
+    String scap(@Body InputStream artifactExpressionXml) throws IOException { //
+        def xmlNode = new XmlParser(false, false).parse(artifactExpressionXml)
+        def artifactMap = build(xmlNode)
 
-    @Post(value = "/scap", produces = MediaType.APPLICATION_XML, consumes = MediaType.APPLICATION_XML)
-    @ExecuteOn(TaskExecutors.IO) //
-    def scap(@Body InputStream artifactExpressionXml) {
-        def bodyText = IOUtils.readText(new BufferedReader(new InputStreamReader(artifactExpressionXml)))
-
-        /*
-        <passwordpolicy_test id=[artifact_oval_id]>
-            <passwordpolicy_object/>
-            <passwordpolicy_state>
-                <[artifact_parameter_value]
-            </passwordpolicy_state>
-        </passwordpolicy_test>
-        */
-        def namespaceMap = ["ae": "http://namespace.for.ae"]
         def xml = new StreamingMarkupBuilder().bind {
-            namespaces << namespaceMap
+            "oval-content" {
+                "under-construction"
+            }
+        }
+        // ALWAYS return a base64 encoded string...
+        return xml.toString().bytes.encodeBase64().toString()
+    }
 
-            // We need a "wrapper" root element to inject the namespace mappings
-            "ae:artifact_expression_root" {
-                mkp.yieldUnescaped bodyText
+    /**
+     * Create the custom XML representation
+     * @param inputStream
+     * @return
+     * @throws IOException
+     */
+    @Post(value = "/xml", produces = MediaType.APPLICATION_XML, consumes = MediaType.APPLICATION_XML)
+    @ExecuteOn(TaskExecutors.IO) //
+    def xml(@Body InputStream artifactExpressionXml) {
+        def xmlNode = new XmlParser(false, false).parse(artifactExpressionXml)
+        def artifactMap = build(xmlNode)
+
+        def xml = new StreamingMarkupBuilder().bind {
+            "assessment" (id: artifactMap["id"], family: artifactMap["family"], type: artifactMap["type"]) {
+                "title" artifactMap["title"]
+                "collection" ("existence_check": "all")
+                "evaluation" ("item_check": "all") {
+                    "evaluation_entity" (
+                        name: artifactMap["entity_name"],
+                        datatype: artifactMap["entity_type"],
+                        operator: artifactMap["entity_operator"],
+                        artifactMap["entity_value"])
+                }
             }
         }
         def n = new XmlParser(false, false).parseText(xml.toString())
-        //xml.toString()
         XmlUtil.serialize(n)
     }
 
+    /**
+     * Create the custom JSON representation
+     * @param artifactExpressionXml
+     * @return
+     */
     @Post(value = "/json", produces = MediaType.APPLICATION_JSON, consumes = MediaType.APPLICATION_XML)
     @ExecuteOn(TaskExecutors.IO) //
     def json(@Body InputStream artifactExpressionXml) {
-        def n = new XmlParser(false, false).parse(artifactExpressionXml)
-        def nid = n.@"id".toString()
-        def aoid = n."ae:artifact_oval_id".text()
-        def aet = n."ae:title".text()
-
-        def art = [:]
-        def artifactType = n."ae:artifact"[0]
-        art["artifact-type"] = artifactType.@type.toString()
-
-        def params = []
-        artifactType."ae:parameters"[0].children().each { c ->
-            params << ["name": c.@"name", "datatype": c.@"dt", "value": c.text()]
-        }
-        art["parameters"] = params
-        def tst = [:]
-        def testType = n."ae:test"[0]
-        tst["test-type"] = testType.@"type".toString()
-        def tparams = []
-        testType."ae:parameters"[0].children().each { c ->
-            tparams << ["name": c.@"name", "datatype": c.@"dt", "value": c.text()]
-        }
-        tst["parameters"] = tparams
+        def xmlNode = new XmlParser(false, false).parse(artifactExpressionXml)
+        def artifactMap = build(xmlNode)
 
         StringWriter writer = new StringWriter()
         StreamingJsonBuilder builder = new StreamingJsonBuilder(writer)
-        builder.expression {
-            "id" nid
-            "oval_id" aoid
-            "title" aet
-            "artifact" art
-            "test" tst
+        builder {
+            "id" artifactMap["id"]
+            "family" artifactMap["family"]
+            "type" artifactMap["type"]
+            "title" artifactMap["title"]
+            "collection" {
+                "existence_check" "all"
+            }
+            "evaluation" {
+                "item_check" "all"
+                "evaluation_entity" {
+                    "name" artifactMap["entity_name"]
+                    "datatype" artifactMap["entity_type"]
+                    "operator" artifactMap["entity_operator"]
+                    "value" artifactMap["entity_value"]
+                }
+            }
         }
         JsonOutput.prettyPrint(writer.toString())
+    }
+
+    /**
+     * Build a map of the necessary/dynamic password policy information
+     * @param xmlNode
+     * @return a map
+     */
+    private def build(def xmlNode) {
+        def artifactType = xmlNode."ae:artifact"[0]
+        def artifactParameter = artifactType."ae:parameters"[0].children()[0]
+
+        def testType = xmlNode."ae:test"[0]
+        def valueParameter = testType."ae:parameters"[0].children().find { n ->
+            n instanceof Node && n.@"name".toString() == "value"
+        }
+        def datatypeParameter = testType."ae:parameters"[0].children().find { n ->
+            n instanceof Node && n.@"name".toString() == "data_type"
+        }
+
+        return [
+            "id": xmlNode."ae:artifact_oval_id".text(),
+            "family": "windows",
+            "type": "passwordpolicy",
+            "title": xmlNode."ae:title".text(),
+            "entity_name": artifactParameter.text().toLowerCase().replace(" ", "_"),
+            "entity_type": datatypeParameter.text(),
+            "entity_operator": xmlNode."ae:test"[0].@"type".toString(),
+            "entity_value": valueParameter.text()
+        ]
     }
 }
