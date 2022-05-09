@@ -1,4 +1,4 @@
-package org.cybertron.soundwave.windows.pp
+package org.cybertron.soundwave.windows.lp
 
 import groovy.json.JsonOutput
 import groovy.json.StreamingJsonBuilder
@@ -12,11 +12,11 @@ import io.micronaut.http.annotation.Post
 import io.micronaut.scheduling.TaskExecutors
 import io.micronaut.scheduling.annotation.ExecuteOn
 
-@Controller("/windows/password-policy")
-class PasswordPolicyController {
+@Controller("/windows/lockout-policy")
+class LockoutPolicyController {
     @Get("/info")
     def info() {
-        return ["family": "windows", "type": "password-policy", "methods": ["scap", "xml", "json"]]
+        return ["family": "windows", "type": "lockout-policy", "methods": ["scap", "xml", "json"]]
     }
 
     /**
@@ -58,10 +58,10 @@ class PasswordPolicyController {
                 "collection" ("existence_check": "all")
                 "evaluation" ("item_check": "all") {
                     "evaluation_entity" (
-                        name: artifactMap["entity_name"],
-                        datatype: artifactMap["entity_type"],
-                        operator: artifactMap["entity_operator"],
-                        artifactMap["entity_value"])
+                            name: artifactMap["entity_name"],
+                            datatype: artifactMap["entity_type"],
+                            operator: artifactMap["entity_operator"],
+                            artifactMap["entity_value"])
                 }
             }
         }
@@ -124,12 +124,13 @@ class PasswordPolicyController {
         return [
             "id": xmlNode."ae:artifact_oval_id".text(),
             "family": "windows",
-            "type": "passwordpolicy",
+            "type": "lockoutpolicy",
             "title": xmlNode."ae:title".text(),
-            "entity_name": artifactParameter.text().toLowerCase().replace(" ", "_"),
+            "entity_name": "lockout_${artifactParameter.text().toLowerCase().replace(" ", "_")}",
             "entity_type": datatypeParameter.text(),
             "entity_operator": xmlNode."ae:test"[0].@"type".toString(),
             "entity_value": valueParameter.text()
         ]
     }
 }
+
